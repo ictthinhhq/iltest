@@ -1,4 +1,5 @@
 {
   "name": "BioLab Pro - Đánh giá Năng lực KHTN 2018",
-  "description": "Ứng dụng đánh giá năng lực Khoa học Tự nhiên thông qua dự án sinh trưởng của vi khuẩn, bám sát chương trình GDPT 2018."
+  "description": "Ứng dụng đánh giá năng lực Khoa học Tự nhiên thông qua dự án sinh trưởng của vi khuẩn, bám sát chương trình GDPT 2018.",
+  "requestFramePermissions": []
 }

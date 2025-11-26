@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { AnalysisResult, ExperimentDesign, ExperimentData, ExperimentApplication } from "../types";
+import { AnalysisResult, ExperimentDesign, ExperimentData, ExperimentApplication, QuizResult, StudentSubmission, ClassAnalysisResult, QuizQuestion } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -54,11 +54,90 @@ const analysisSchema: Schema = {
   required: ["summary", "competencies", "strengths", "weaknesses", "learningPath"],
 };
 
+const classAnalysisSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    overallAssessment: {
+      type: Type.STRING,
+      description: "Nhận xét tổng quát về tình hình học tập của cả lớp.",
+    },
+    commonMisconceptions: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "Các lỗi sai phổ biến mà nhiều học sinh gặp phải.",
+    },
+    recommendedTeachingStrategies: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "Đề xuất 3-5 phương pháp giảng dạy để khắc phục các vấn đề trên.",
+    },
+  },
+  required: ["overallAssessment", "commonMisconceptions", "recommendedTeachingStrategies"],
+};
+
+const quizSchema: Schema = {
+  type: Type.ARRAY,
+  description: "Danh sách 10 câu hỏi trắc nghiệm",
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      id: { type: Type.INTEGER },
+      question: { type: Type.STRING },
+      options: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: "Danh sách 4 lựa chọn trả lời."
+      },
+      correctAnswer: { type: Type.INTEGER, description: "Chỉ số của đáp án đúng (0-3)." },
+      competencyType: { 
+        type: Type.STRING, 
+        description: "Phân loại năng lực: 'Nhận thức KHTN', 'Tìm hiểu Tự nhiên', hoặc 'Vận dụng KHTN'" 
+      }
+    },
+    required: ["id", "question", "options", "correctAnswer", "competencyType"]
+  }
+};
+
+export const generateAdaptiveQuiz = async (): Promise<QuizQuestion[]> => {
+  const prompt = `
+    Tạo một bài trắc nghiệm gồm 10 câu hỏi về chủ đề "Sự sinh trưởng của vi khuẩn" (Sinh học 10 - KHTN).
+    
+    Yêu cầu cấu trúc:
+    - 3 câu về "Nhận thức KHTN": Kiến thức nền tảng (pha sinh trưởng, các yếu tố ảnh hưởng, sinh sản).
+    - 3 câu về "Tìm hiểu Tự nhiên": Kỹ năng thí nghiệm, quan sát đồ thị, đo đạc OD, đếm khuẩn lạc.
+    - 4 câu về "Vận dụng kiến thức KHTN": Ứng dụng thực tế (lên men, bảo quản thực phẩm, thuốc kháng sinh).
+    
+    Đảm bảo 4 đáp án cho mỗi câu, chỉ 1 đáp án đúng.
+    Nội dung câu hỏi phải đa dạng, không trùng lặp và phù hợp với học sinh phổ thông.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: quizSchema,
+        temperature: 0.8, // Slightly high for variety
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No quiz generated");
+    return JSON.parse(text) as QuizQuestion[];
+
+  } catch (error) {
+    console.error("Lỗi tạo quiz:", error);
+    throw error;
+  }
+};
+
 export const analyzeStudentPerformance = async (
   design: ExperimentDesign,
   data: ExperimentData,
   application: ExperimentApplication,
-  imageBase64: string | undefined
+  imageBase64: string | undefined,
+  quizResult: QuizResult | null
 ): Promise<AnalysisResult> => {
   
   const parts: any[] = [];
@@ -76,12 +155,21 @@ export const analyzeStudentPerformance = async (
     .map(d => `- Thời gian: ${d.time}, Giá trị (OD/Khuẩn lạc): ${d.value}`)
     .join('\n');
 
-  const prompt = `
-    Vai trò: Bạn là "BioLab AI" - Chuyên gia đánh giá năng lực Khoa học Tự nhiên (KHTN) theo chương trình GDPT 2018 của Việt Nam.
-    
-    Nhiệm vụ: Đánh giá quá trình thực hiện dự án "Sự sinh trưởng của vi khuẩn" của học sinh. Tập trung vào QUY TRÌNH và TƯ DUY, không chỉ kết quả đúng sai.
+  const quizInfo = quizResult 
+    ? `Học sinh này có mức độ kiến thức nền tảng ban đầu là: "${quizResult.level}" (Điểm quiz: ${quizResult.score}/10). Hãy điều chỉnh độ khó của nhận xét cho phù hợp.` 
+    : "Không có thông tin bài quiz đầu vào.";
 
-    DỮ LIỆU ĐẦU VÀO CỦA HỌC SINH:
+  const prompt = `
+    Vai trò: Bạn là "BioLab AI" - Chuyên gia đánh giá năng lực Khoa học Tự nhiên (KHTN) theo chương trình GDPT 2018.
+    
+    THÔNG TIN ĐẦU VÀO:
+    ${quizInfo}
+
+    Nhiệm vụ: Đánh giá quá trình thực hiện dự án "Sự sinh trưởng của vi khuẩn". 
+    Nếu học sinh ở mức "Cơ bản", hãy giải thích kỹ các lỗi sai cơ bản bằng ngôn ngữ dễ hiểu.
+    Nếu học sinh ở mức "Nâng cao", hãy yêu cầu cao hơn về độ chính xác số liệu và tư duy phản biện.
+
+    DỮ LIỆU DỰ ÁN CỦA HỌC SINH:
 
     1. MÔ-ĐUN 1: THIẾT KẾ (Đánh giá năng lực Nhận thức KHTN & Tin học)
     - Loại vi khuẩn: ${design.bacteriaType}
@@ -109,21 +197,22 @@ export const analyzeStudentPerformance = async (
     2. "Tìm hiểu Tự nhiên": Đánh giá kỹ năng xử lý dữ liệu, vẽ đồ thị, quan sát.
     3. "Vận dụng kiến thức KHTN": Đánh giá khả năng giải quyết vấn đề và ứng dụng thực tiễn.
 
-    Lộ trình học tập (Learning Path) cần cá nhân hóa dựa trên lỗi sai (Ví dụ: Sai nhiệt độ -> Ôn tập sinh lý vi khuẩn; Vẽ biểu đồ sai -> Bài tập xử lý số liệu).
+    Lộ trình học tập (Learning Path) cần cá nhân hóa dựa trên lỗi sai và LEVEL quiz ban đầu.
   `;
 
   parts.push({ text: prompt });
 
   try {
+    // Use gemini-3-pro-preview for better STEM reasoning and complex task handling
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       contents: {
         parts: parts,
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
-        systemInstruction: "Bạn là giáo viên Sinh học nhiệt tình, nghiêm túc nhưng khuyến khích học sinh. Sử dụng thuật ngữ chuyên môn KHTN 2018.",
+        systemInstruction: "Bạn là giáo viên Sinh học nhiệt tình, nghiêm túc nhưng khuyến khích học sinh. Sử dụng thuật ngữ chuyên môn KHTN 2018. Đánh giá chính xác, khoa học.",
       },
     });
 
@@ -135,6 +224,61 @@ export const analyzeStudentPerformance = async (
     return JSON.parse(text) as AnalysisResult;
   } catch (error) {
     console.error("Lỗi khi phân tích:", error);
+    throw error;
+  }
+};
+
+export const analyzeClassPerformance = async (submissions: StudentSubmission[]): Promise<ClassAnalysisResult> => {
+  if (submissions.length === 0) {
+    throw new Error("Không có dữ liệu để phân tích.");
+  }
+
+  // Summarize data to fit context window efficiently
+  const classDataSummary = submissions.map((s, index) => {
+    return `
+    Student ${index + 1} (${s.studentName}) - Quiz Level: ${s.quizResult?.level || 'N/A'}
+    - Prediction: ${s.design.prediction}
+    - Weaknesses Identified: ${s.analysis.weaknesses.join('; ')}
+    - Competency Scores: 
+      Nhận thức: ${s.analysis.competencies.find(c => c.name.includes('Nhận thức'))?.score},
+      Tìm hiểu: ${s.analysis.competencies.find(c => c.name.includes('Tìm hiểu'))?.score},
+      Vận dụng: ${s.analysis.competencies.find(c => c.name.includes('Vận dụng'))?.score}
+    `;
+  }).join('\n---\n');
+
+  const prompt = `
+    Dưới đây là dữ liệu tổng hợp kết quả thực hiện dự án "Sự sinh trưởng của vi khuẩn" của một lớp học.
+    Hãy phân tích dữ liệu này dưới góc độ một Tổ trưởng chuyên môn KHTN.
+
+    DỮ LIỆU LỚP HỌC:
+    ${classDataSummary}
+
+    YÊU CẦU:
+    1. Đánh giá tổng quan về năng lực của lớp.
+    2. Chỉ ra các quan niệm sai lầm phổ biến (Common Misconceptions) mà nhiều học sinh mắc phải (Ví dụ: sai về nhiệt độ, sai về pha sinh trưởng...).
+    3. Đề xuất 3-5 chiến lược giảng dạy hoặc nội dung cần ôn tập kỹ trong bài học tới để khắc phục các lỗ hổng này.
+  `;
+
+  try {
+    // Use gemini-3-pro-preview for complex aggregation and pedagogical strategy
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-preview",
+      contents: {
+        parts: [{ text: prompt }],
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: classAnalysisSchema,
+      },
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response");
+    
+    return JSON.parse(text) as ClassAnalysisResult;
+
+  } catch (error) {
+    console.error("Lỗi phân tích lớp học:", error);
     throw error;
   }
 };

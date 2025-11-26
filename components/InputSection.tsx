@@ -1,9 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { Upload, Trash2, Plus, Sparkles, ScanLine, FlaskConical, BarChart2, Lightbulb, ChevronRight } from 'lucide-react';
+import { Upload, Trash2, Plus, Sparkles, ScanLine, FlaskConical, BarChart2, Lightbulb, ChevronRight, User } from 'lucide-react';
 import { ExperimentDesign, ExperimentData, ExperimentApplication, DataPoint } from '../types';
 
 interface InputSectionProps {
   onAnalyze: (
+    studentName: string,
     design: ExperimentDesign,
     data: ExperimentData,
     app: ExperimentApplication,
@@ -18,6 +19,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isLoading
   const [activeTab, setActiveTab] = useState<TabType>('design');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Student Info
+  const [studentName, setStudentName] = useState('');
 
   // Module 1: Design Input State
   const [design, setDesign] = useState<ExperimentDesign>({
@@ -63,12 +67,18 @@ export const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isLoading
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!studentName.trim()) {
+      alert("Vui lòng nhập họ tên học sinh.");
+      return;
+    }
+
     let imagePayload = undefined;
     if (selectedImage) {
       imagePayload = selectedImage.split(',')[1];
     }
     
     onAnalyze(
+      studentName,
       design,
       { dataPoints, observation },
       appData,
@@ -84,11 +94,30 @@ export const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isLoading
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 p-6 md:p-8">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">Nhập liệu Dự án</h2>
-        <p className="text-slate-600">
-          Cung cấp thông tin thực nghiệm để BioLab AI đánh giá năng lực của bạn.
-        </p>
+      <div className="mb-8 border-b border-slate-100 pb-6">
+        <h2 className="text-2xl font-bold text-slate-800 mb-4">Thông tin dự án</h2>
+        
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row gap-4 items-start md:items-center">
+            <div className="flex-1 w-full">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Họ và tên học sinh</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                  type="text"
+                  required
+                  placeholder="Nhập họ tên của bạn..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none font-medium text-slate-800"
+                  value={studentName}
+                  onChange={(e) => setStudentName(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="hidden md:block w-px h-10 bg-slate-200"></div>
+            <div className="flex-1 w-full">
+               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Dự án</p>
+               <p className="font-semibold text-emerald-700">Sinh trưởng của vi khuẩn (KHTN 2018)</p>
+            </div>
+        </div>
       </div>
 
       <div className="flex border-b border-slate-200 mb-6">
@@ -301,7 +330,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isLoading
           </div>
         )}
 
-        {/* Submit Button - Always visible but highlights action */}
+        {/* Submit Button */}
         <div className="pt-4 border-t border-slate-100">
           <button
             type="submit"
@@ -320,7 +349,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onAnalyze, isLoading
             ) : (
               <>
                 <Sparkles size={20} />
-                Đánh giá Năng lực KHTN
+                Hoàn thành & Gửi đánh giá
               </>
             )}
           </button>
